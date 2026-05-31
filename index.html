@@ -475,7 +475,7 @@ function effectiveThemes() {
 let activeTab = "lib";
 let curFilter = "all";
 let curTheme = "";            // "" = all themes
-const APP_VERSION = "1.2";    // shown in Settings → About; bump when the app changes
+const APP_VERSION = "1.3";    // shown in Settings → About; bump when the app changes
 let scanner = null;        // Html5Qrcode instance
 let scanning = false;
 
@@ -572,12 +572,17 @@ function dueLine(b) {
 function renderThemeChips() {
   // Build chips only from themes actually used in the catalog
   const present = [...new Set(books.map((b) => b.theme).filter(Boolean))].sort((a, b) => a.localeCompare(b));
-  if (curTheme && !present.includes(curTheme)) curTheme = "";   // reset if its theme vanished
+  const hasUntagged = books.some((b) => !b.theme);
+  // reset the filter if its target no longer exists
+  if (curTheme && curTheme !== "__none" && !present.includes(curTheme)) curTheme = "";
+  if (curTheme === "__none" && !hasUntagged) curTheme = "";
   const box = $("themeChips");
-  if (!present.length) { box.innerHTML = ""; return; }
-  box.innerHTML =
+  if (!present.length) { box.innerHTML = ""; return; }   // nothing tagged yet → no row
+  let html =
     `<button class="chip${curTheme === "" ? " active" : ""}" data-theme="">All themes</button>` +
     present.map((t) => `<button class="chip${curTheme === t ? " active" : ""}" data-theme="${esc(t)}">${esc(t)}</button>`).join("");
+  if (hasUntagged) html += `<button class="chip${curTheme === "__none" ? " active" : ""}" data-theme="__none">No theme</button>`;
+  box.innerHTML = html;
   box.querySelectorAll(".chip").forEach((c) =>
     c.onclick = () => { curTheme = c.dataset.theme; renderThemeChips(); renderList(); });
 }
@@ -586,7 +591,8 @@ function renderList() {
   let rows = books.filter((b) => {
     if (curFilter === "in" && b.status !== "in") return false;
     if (curFilter === "out" && b.status !== "out") return false;
-    if (curTheme && b.theme !== curTheme) return false;
+    if (curTheme === "__none") { if (b.theme) return false; }
+    else if (curTheme && b.theme !== curTheme) return false;
     if (term && !(
       (b.title || "").toLowerCase().includes(term) ||
       (b.authors || "").toLowerCase().includes(term) ||
