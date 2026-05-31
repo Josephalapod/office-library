@@ -103,10 +103,12 @@
   /* ---- Scan view ---- */
   .scanview{display:none}
   #reader{border-radius:var(--radius);overflow:hidden;margin-bottom:14px;width:100%}
-  #reader.live{min-height:300px;background:#11140f}
+  #reader.live{height:320px;background:#11140f;position:relative}
   #reader:not(.live){height:0;margin:0}
-  #reader video{width:100% !important;height:auto !important;display:block}
-  #reader img[alt="Info icon"]{display:none}
+  #reader.live > div{width:100% !important;height:100% !important;border:none !important;padding:0 !important}
+  #reader.live video{width:100% !important;height:100% !important;object-fit:cover !important;display:block !important}
+  #reader.live canvas{display:none !important}
+  #reader img{display:none !important}
   .scan-hint{text-align:center;color:var(--ink-soft);font-size:14px;margin:10px 0 18px}
   .divider{display:flex;align-items:center;gap:12px;color:var(--ink-soft);font-size:12px;margin:18px 0}
   .divider::before,.divider::after{content:"";flex:1;height:1px;background:var(--line)}
