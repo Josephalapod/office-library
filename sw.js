@@ -1,5 +1,5 @@
 // Bump CACHE_VERSION whenever you change index.html so phones pick up the update.
-const CACHE_VERSION = "booklib-v5";
+const CACHE_VERSION = "booklib-v6";
 const SHELL = ["./", "./index.html", "./manifest.json", "./icon-192.png", "./icon-512.png"];
 
 self.addEventListener("install", (event) => {
