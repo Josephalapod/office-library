@@ -244,6 +244,8 @@
         <input id="manualIsbn" type="text" inputmode="numeric" placeholder="ISBN / barcode digits" />
         <button class="btn ghost" id="manualBtn">Look&nbsp;up</button>
       </div>
+      <div class="divider">no barcode at all?</div>
+      <button class="btn ghost big block" id="manualAddBtn">＋ Add a book manually</button>
     </section>
 
     <!-- SETTINGS -->
@@ -475,7 +477,7 @@ function effectiveThemes() {
 let activeTab = "lib";
 let curFilter = "all";
 let curTheme = "";            // "" = all themes
-const APP_VERSION = "1.3";    // shown in Settings → About; bump when the app changes
+const APP_VERSION = "1.4";    // shown in Settings → About; bump when the app changes
 let scanner = null;        // Html5Qrcode instance
 let scanning = false;
 
@@ -895,7 +897,7 @@ function openAdd(isbn, meta) {
       ${meta.cover ? `<div class="cover"><img src="${esc(meta.cover)}" onerror="this.parentNode.textContent='📖'"></div>` : `<div class="cover">📖</div>`}
       <div><h3>${esc(meta.title || "New book")}</h3><p class="sub">${esc(meta.authors || "")}</p></div>
     </div>
-    <p class="sub">Add this to the library? You can fix the details first.</p>
+    <p class="sub">${meta.title ? "Add this to the library? You can fix the details first." : "Enter the book's details below."}</p>
     <label class="fld">Title</label>
     <input class="txt" id="addTitle" value="${esc(meta.title || "")}">
     <label class="fld">Author(s)</label>
@@ -1030,6 +1032,7 @@ async function stopScan() {
 $("scanBtn").onclick = () => (scanning ? stopScan() : startScan());
 $("manualBtn").onclick = () => { const v = $("manualIsbn").value.trim(); if (v) { handleISBN(v); $("manualIsbn").value = ""; } };
 $("manualIsbn").addEventListener("keydown", (e) => { if (e.key === "Enter") $("manualBtn").click(); });
+$("manualAddBtn").onclick = () => { stopScan(); openAdd("", { title: "", authors: "", cover: "" }); };
 
 // ============================================================
 // Tabs / navigation
