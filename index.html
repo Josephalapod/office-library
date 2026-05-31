@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#3e5c4b" />
+<title>Office Library</title>
+<link rel="manifest" href="manifest.json" />
+<link rel="apple-touch-icon" href="icon-192.png" />
+<link rel="icon" href="icon-192.png" />
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+<!-- Barcode scanning (UMD global: Html5Qrcode) -->
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+
+<style>
+  :root{
+    --paper:#f7f3ec;
+    --paper-2:#efe9dd;
+    --ink:#23302a;
+    --ink-soft:#5d6b63;
+    --sage:#3e5c4b;
+    --sage-2:#6b8a6e;
+    --sage-tint:#e2e8de;
+    --clay:#c17c5c;
+    --clay-tint:#f1e0d4;
+    --amber:#b8893a;
+    --line:#ddd5c6;
+    --shadow:0 8px 30px rgba(35,48,42,.12);
+    --radius:18px;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%}
+  body{
+    font-family:"Hanken Grotesk",system-ui,sans-serif;
+    color:var(--ink);
+    background:
+      radial-gradient(120% 90% at 80% -10%, #fbf8f1 0%, var(--paper) 45%, var(--paper-2) 100%);
+    background-attachment:fixed;
+    padding-bottom:env(safe-area-inset-bottom);
+  }
+  .app{max-width:560px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column}
+
+  header.top{
+    padding:calc(18px + env(safe-area-inset-top)) 22px 16px;
+    display:flex;align-items:baseline;justify-content:space-between;gap:10px;
+  }
+  header.top h1{
+    font-family:"Fraunces",serif;font-weight:600;font-size:27px;letter-spacing:-.5px;
+    margin:0;line-height:1;
+  }
+  header.top h1 span{color:var(--sage)}
+  .count{font-size:13px;color:var(--ink-soft);font-weight:500;white-space:nowrap}
+
+  main{flex:1;padding:4px 18px 110px}
+
+  /* ---- Library view ---- */
+  .searchwrap{position:relative;margin:6px 0 14px}
+  .searchwrap input{
+    width:100%;padding:14px 16px 14px 44px;border:1px solid var(--line);
+    border-radius:14px;background:#fff;font:inherit;font-size:15px;color:var(--ink);
+  }
+  .searchwrap svg{position:absolute;left:15px;top:50%;transform:translateY(-50%);color:var(--ink-soft)}
+  .searchwrap input:focus{outline:none;border-color:var(--sage-2);box-shadow:0 0 0 3px var(--sage-tint)}
+
+  .chips{display:flex;gap:8px;margin-bottom:16px}
+  .chip{
+    border:1px solid var(--line);background:#fff;color:var(--ink-soft);
+    padding:7px 14px;border-radius:999px;font:inherit;font-size:13px;font-weight:600;cursor:pointer;
+  }
+  .chip.active{background:var(--sage);border-color:var(--sage);color:#fff}
+
+  .list{display:flex;flex-direction:column;gap:10px}
+  .book{
+    display:flex;gap:13px;align-items:center;background:#fff;border:1px solid var(--line);
+    border-radius:var(--radius);padding:11px;cursor:pointer;transition:transform .12s ease, box-shadow .12s ease;
+  }
+  .book:active{transform:scale(.985)}
+  .cover{
+    width:46px;height:64px;border-radius:6px;flex:none;object-fit:cover;
+    background:var(--sage-tint);box-shadow:inset 0 0 0 1px rgba(0,0,0,.04);
+    display:flex;align-items:center;justify-content:center;color:var(--sage-2);font-size:20px;overflow:hidden;
+  }
+  .cover img{width:100%;height:100%;object-fit:cover}
+  .bmeta{flex:1;min-width:0}
+  .btitle{font-weight:600;font-size:15px;line-height:1.25;margin:0 0 3px;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .bauthor{font-size:13px;color:var(--ink-soft);margin:0 0 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .pill{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;
+    padding:3px 9px;border-radius:999px;letter-spacing:.2px}
+  .pill.in{background:var(--sage-tint);color:var(--sage)}
+  .pill.out{background:var(--clay-tint);color:var(--clay)}
+  .pill .dot{width:6px;height:6px;border-radius:50%;background:currentColor}
+  .who{font-size:12px;color:var(--ink-soft);margin-top:5px}
+  .who.overdue{color:var(--clay);font-weight:600}
+
+  .empty{text-align:center;color:var(--ink-soft);padding:60px 20px;font-size:14.5px}
+  .empty .big{font-family:"Fraunces",serif;font-size:19px;color:var(--ink);margin-bottom:6px}
+
+  /* ---- Scan view ---- */
+  .scanview{display:none}
+  #reader{border-radius:var(--radius);overflow:hidden;margin-bottom:14px}
+  #reader:empty{display:none}
+  .scan-hint{text-align:center;color:var(--ink-soft);font-size:14px;margin:10px 0 18px}
+  .divider{display:flex;align-items:center;gap:12px;color:var(--ink-soft);font-size:12px;margin:18px 0}
+  .divider::before,.divider::after{content:"";flex:1;height:1px;background:var(--line)}
+  .manual{display:flex;gap:8px}
+  .manual input{flex:1;padding:13px 15px;border:1px solid var(--line);border-radius:13px;background:#fff;font:inherit;font-size:15px}
+  .manual input:focus{outline:none;border-color:var(--sage-2);box-shadow:0 0 0 3px var(--sage-tint)}
+
+  /* ---- Settings view ---- */
+  .settingsview{display:none}
+  .card{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:16px 16px;margin-bottom:14px}
+  .card h2{font-family:"Fraunces",serif;font-weight:600;font-size:17px;margin:0 0 4px}
+  .card p.sub{font-size:13px;color:var(--ink-soft);margin:0 0 14px}
+  .nametag{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 0;border-bottom:1px solid var(--paper-2)}
+  .nametag:last-child{border-bottom:none}
+  .nametag button{background:none;border:none;color:var(--clay);font-size:18px;cursor:pointer;padding:4px 6px;line-height:1}
+  .rowadd{display:flex;gap:8px;margin-top:12px}
+  .rowadd input{flex:1;padding:11px 13px;border:1px solid var(--line);border-radius:11px;font:inherit;background:#fff}
+  .rowadd input:focus{outline:none;border-color:var(--sage-2);box-shadow:0 0 0 3px var(--sage-tint)}
+
+  /* ---- Buttons ---- */
+  .btn{border:none;border-radius:13px;font:inherit;font-weight:600;font-size:15px;
+    padding:13px 18px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px}
+  .btn.primary{background:var(--sage);color:#fff}
+  .btn.primary:active{background:#33503f}
+  .btn.clay{background:var(--clay);color:#fff}
+  .btn.ghost{background:var(--paper-2);color:var(--ink)}
+  .btn.danger{background:#fff;color:var(--clay);border:1px solid var(--clay-tint)}
+  .btn.block{width:100%}
+  .btn.big{padding:18px;font-size:16px;border-radius:16px}
+
+  /* ---- Bottom nav ---- */
+  nav.tabs{
+    position:fixed;left:0;right:0;bottom:0;z-index:30;
+    background:rgba(247,243,236,.92);backdrop-filter:blur(12px);
+    border-top:1px solid var(--line);
+    padding:8px 0 calc(8px + env(safe-area-inset-bottom));
+    display:flex;justify-content:center;
+  }
+  nav.tabs .inner{width:100%;max-width:560px;display:flex}
+  nav.tabs button{
+    flex:1;background:none;border:none;cursor:pointer;color:var(--ink-soft);
+    font:inherit;font-size:11px;font-weight:600;display:flex;flex-direction:column;align-items:center;gap:4px;padding:4px}
+  nav.tabs button.active{color:var(--sage)}
+  nav.tabs svg{width:23px;height:23px}
+
+  /* ---- Modal / sheet ---- */
+  .scrim{position:fixed;inset:0;background:rgba(35,48,42,.4);z-index:40;display:none;align-items:flex-end;justify-content:center}
+  .scrim.show{display:flex}
+  .sheet{
+    background:var(--paper);width:100%;max-width:560px;border-radius:22px 22px 0 0;
+    padding:10px 20px calc(24px + env(safe-area-inset-bottom));box-shadow:var(--shadow);
+    animation:rise .22s ease;max-height:90vh;overflow:auto}
+  @keyframes rise{from{transform:translateY(40px);opacity:.6}to{transform:translateY(0);opacity:1}}
+  .grab{width:40px;height:4px;border-radius:2px;background:var(--line);margin:4px auto 16px}
+  .sheet .bighead{display:flex;gap:14px;margin-bottom:18px}
+  .sheet .bighead .cover{width:60px;height:84px}
+  .sheet h3{font-family:"Fraunces",serif;font-weight:600;font-size:20px;margin:0 0 4px;line-height:1.2}
+  .sheet .sub{font-size:14px;color:var(--ink-soft);margin:0}
+  label.fld{display:block;font-size:13px;font-weight:600;color:var(--ink-soft);margin:14px 0 6px}
+  select,input.txt,input.date{width:100%;padding:13px 14px;border:1px solid var(--line);border-radius:12px;font:inherit;font-size:15px;background:#fff;color:var(--ink)}
+  select:focus,input.txt:focus,input.date:focus{outline:none;border-color:var(--sage-2);box-shadow:0 0 0 3px var(--sage-tint)}
+  .actions{display:flex;flex-direction:column;gap:10px;margin-top:20px}
+
+  /* ---- PIN gate / setup screen ---- */
+  .overlay{position:fixed;inset:0;z-index:60;background:var(--paper);display:flex;flex-direction:column;
+    align-items:center;justify-content:center;padding:32px;text-align:center}
+  .overlay .logo{width:64px;height:64px;border-radius:18px;margin-bottom:18px;display:block}
+  .overlay h2{font-family:"Fraunces",serif;font-weight:600;font-size:23px;margin:0 0 8px}
+  .overlay p{color:var(--ink-soft);font-size:14.5px;max-width:340px;margin:0 0 20px;line-height:1.5}
+  .overlay input{width:200px;text-align:center;letter-spacing:6px;font-size:22px;padding:12px;border:1px solid var(--line);border-radius:12px;background:#fff;margin-bottom:14px}
+  .overlay.setup{align-items:stretch;text-align:left;justify-content:flex-start;padding:40px 24px;overflow:auto}
+  .overlay.setup pre{background:var(--ink);color:#e7eee7;padding:14px;border-radius:12px;font-size:12px;overflow:auto;white-space:pre-wrap;word-break:break-word}
+  .overlay.setup code{background:var(--paper-2);padding:2px 6px;border-radius:5px;font-size:13px}
+  .toast{position:fixed;bottom:90px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;
+    padding:11px 18px;border-radius:12px;font-size:14px;z-index:70;box-shadow:var(--shadow);opacity:0;transition:opacity .2s;pointer-events:none}
+  .toast.show{opacity:1}
+  .spin{width:22px;height:22px;border:3px solid var(--sage-tint);border-top-color:var(--sage);border-radius:50%;animation:rot .8s linear infinite;margin:24px auto}
+  @keyframes rot{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<div class="app" id="app" style="display:none">
+  <header class="top">
+    <h1>Office&nbsp;<span>Library</span></h1>
+    <div class="count" id="count"></div>
+  </header>
+
+  <main>
+    <!-- LIBRARY -->
+    <section class="libview" id="libview">
+      <div class="searchwrap">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+        <input id="search" type="search" placeholder="Search title or author" autocomplete="off" />
+      </div>
+      <div class="chips">
+        <button class="chip active" data-filter="all">All</button>
+        <button class="chip" data-filter="in">Available</button>
+        <button class="chip" data-filter="out">Checked out</button>
+      </div>
+      <div class="list" id="list"></div>
+    </section>
+
+    <!-- SCAN -->
+    <section class="scanview" id="scanview">
+      <div id="reader"></div>
+      <button class="btn primary big block" id="scanBtn">Start camera</button>
+      <p class="scan-hint" id="scanHint">Point the camera at a book's barcode.</p>
+      <div class="divider">or enter the barcode number</div>
+      <div class="manual">
+        <input id="manualIsbn" type="text" inputmode="numeric" placeholder="ISBN / barcode digits" />
+        <button class="btn ghost" id="manualBtn">Look&nbsp;up</button>
+      </div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section class="settingsview" id="settingsview">
+      <div class="card">
+        <h2>Staff</h2>
+        <p class="sub">Names that show up when checking a book out.</p>
+        <div id="staffList"></div>
+        <div class="rowadd">
+          <input id="newName" type="text" placeholder="Add a name" />
+          <button class="btn primary" id="addName">Add</button>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Access PIN</h2>
+        <p class="sub">Optional soft lock so passersby don't open the app. Leave blank for none. (Not real security — anyone with the link can still reach the data.)</p>
+        <div class="rowadd">
+          <input id="pinSet" type="text" inputmode="numeric" placeholder="e.g. 1234 (blank = off)" />
+          <button class="btn primary" id="savePin">Save</button>
+        </div>
+      </div>
+      <div class="card">
+        <h2>About</h2>
+        <p class="sub" style="margin:0">Books live in your Firestore database and sync to every phone instantly. <span id="dbcount"></span></p>
+      </div>
+    </section>
+  </main>
+
+  <nav class="tabs">
+    <div class="inner">
+      <button data-tab="lib" class="active" id="tabLib">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5a2 2 0 0 1 2-2h12a1 1 0 0 1 1 1v15a1 1 0 0 1-1 1H6a2 2 0 0 1-2-2z"/><path d="M4 17h15"/></svg>
+        Library
+      </button>
+      <button data-tab="scan" id="tabScan">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 12h10"/></svg>
+        Scan
+      </button>
+      <button data-tab="settings" id="tabSettings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 6.6 19l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 3 13.4H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 6.6l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 10 3.6V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0 .9 2.7H21a2 2 0 1 1 0 4Z"/></svg>
+        Settings
+      </button>
+    </div>
+  </nav>
+</div>
+
+<!-- Loading -->
+<div class="overlay" id="loading"><div class="spin"></div></div>
+
+<!-- PIN gate -->
+<div class="overlay" id="pinGate" style="display:none">
+  <img src="icon-192.png" class="logo" alt="" />
+  <h2>Office Library</h2>
+  <p>Enter the access PIN to continue.</p>
+  <input id="pinInput" type="text" inputmode="numeric" placeholder="••••" />
+  <button class="btn primary" id="pinGo" style="width:200px">Unlock</button>
+  <p id="pinErr" style="color:var(--clay);min-height:18px;margin-top:10px"></p>
+</div>
+
+<!-- Setup screen (shown if Firebase config missing) -->
+<div class="overlay setup" id="setup" style="display:none">
+  <h2>Almost there — add your Firebase keys</h2>
+  <p>Open <code>index.html</code> and paste your Firebase config into the <code>firebaseConfig</code> block near the bottom of the file, then redeploy. The README has the full walkthrough.</p>
+  <pre id="setupSnippet"></pre>
+</div>
+
+<div class="scrim" id="scrim"><div class="sheet" id="sheet"></div></div>
+<div class="toast" id="toast"></div>
+
+<script type="module">
+/* ============================================================
+   1) FIREBASE CONFIG  ←  PASTE YOUR PROJECT'S VALUES HERE
+   Firebase console → Project settings → "Your apps" → Web app → SDK setup
+   ============================================================ */
+const firebaseConfig = {
+  apiKey: "AIzaSyCaW6Nsky2ytcPhFij1FarznTeGWJ1ltRM",
+  authDomain: "inspired-therapy-library.firebaseapp.com",
+  projectId: "inspired-therapy-library",
+  storageBucket: "inspired-therapy-library.firebasestorage.app",
+  messagingSenderId: "1083389043921",
+  appId: "1:1083389043921:web:a9330643e335e75687d1f0"
+};
+/* ============================================================ */
+
+// --- Tiny DOM helpers ---
+const $ = (id) => document.getElementById(id);
+const esc = (s) => (s || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+let toastT;
+function toast(msg) {
+  const t = $("toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("show"), 2200);
+}
+
+// --- Bail out to setup screen if config not filled in ---
+if (firebaseConfig.apiKey.startsWith("PASTE")) {
+  $("loading").style.display = "none";
+  $("setup").style.display = "flex";
+  $("setupSnippet").textContent =
+`const firebaseConfig = {
+  apiKey: "AIza...",
+  authDomain: "your-project.firebaseapp.com",
+  projectId: "your-project",
+  storageBucket: "your-project.appspot.com",
+  messagingSenderId: "1234567890",
+  appId: "1:1234567890:web:abc123"
+};`;
+  throw new Error("Firebase config not set");
+}
+
+// --- Firebase imports ---
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-app.js";
+import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-auth.js";
+import {
+  getFirestore, collection, doc, addDoc, updateDoc, deleteDoc, setDoc,
+  onSnapshot, query, orderBy, serverTimestamp
+} from "https://www.gstatic.com/firebasejs/12.13.0/firebase-firestore.js";
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+const booksCol = collection(db, "books");
+const logCol = collection(db, "log");
+const settingsRef = doc(db, "meta", "settings");
+
+// --- App state ---
+let books = [];            // live mirror of the books collection
+let settings = { staff: [], pin: "" };
+let activeTab = "lib";
+let curFilter = "all";
+let scanner = null;        // Html5Qrcode instance
+let scanning = false;
+
+// ============================================================
+// AUTH then start listeners
+// ============================================================
+signInAnonymously(auth).catch((e) => {
+  $("loading").innerHTML = `<p style="color:var(--clay);padding:20px;text-align:center">Couldn't sign in.<br>In Firebase console enable <b>Authentication → Anonymous</b>.<br><small>${esc(e.message)}</small></p>`;
+});
+
+onAuthStateChanged(auth, (user) => {
+  if (!user) return;
+  startListeners();
+});
+
+function startListeners() {
+  // Settings (staff list + PIN)
+  onSnapshot(settingsRef, (snap) => {
+    settings = snap.exists() ? snap.data() : { staff: [], pin: "" };
+    settings.staff = settings.staff || [];
+    renderStaff();
+    $("pinSet").value = settings.pin || "";
+    maybeGate();
+  }, () => { maybeGate(); });
+
+  // Books (live)
+  onSnapshot(query(booksCol, orderBy("titleLower")), (snap) => {
+    books = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    renderList();
+    updateCounts();
+    revealApp();
+  }, (err) => {
+    $("loading").innerHTML = `<p style="color:var(--clay);padding:20px;text-align:center">Database read failed.<br>Check your Firestore security rules.<br><small>${esc(err.message)}</small></p>`;
+  });
+}
+
+let revealed = false;
+function revealApp() {
+  if (revealed) return; revealed = true;
+  $("loading").style.display = "none";
+  maybeGate();
+}
+
+// ============================================================
+// PIN gate (soft lock)
+// ============================================================
+function unlocked() { try { return sessionStorage.getItem("lib_unlocked") === "1"; } catch { return false; } }
+function maybeGate() {
+  if (!revealed) return;
+  if (settings.pin && !unlocked()) {
+    $("pinGate").style.display = "flex";
+    $("app").style.display = "none";
+  } else {
+    $("pinGate").style.display = "none";
+    $("app").style.display = "flex";
+  }
+}
+$("pinGo").onclick = () => {
+  if ($("pinInput").value === (settings.pin || "")) {
+    try { sessionStorage.setItem("lib_unlocked", "1"); } catch {}
+    $("pinErr").textContent = ""; $("pinInput").value = "";
+    maybeGate();
+  } else {
+    $("pinErr").textContent = "Wrong PIN";
+  }
+};
+$("pinInput").addEventListener("keydown", (e) => { if (e.key === "Enter") $("pinGo").click(); });
+
+// ============================================================
+// Rendering
+// ============================================================
+function coverHtml(b) {
+  return b.cover
+    ? `<div class="cover"><img src="${esc(b.cover)}" alt="" loading="lazy" onerror="this.parentNode.textContent='📖'"></div>`
+    : `<div class="cover">📖</div>`;
+}
+function dueLine(b) {
+  if (b.status !== "out") return "";
+  let s = `With <b>${esc(b.borrower || "someone")}</b>`;
+  let overdue = false;
+  if (b.dueDate) {
+    const d = new Date(b.dueDate + "T23:59:59");
+    overdue = d < new Date();
+    s += overdue ? ` · overdue (${esc(b.dueDate)})` : ` · due ${esc(b.dueDate)}`;
+  }
+  return `<div class="who${overdue ? " overdue" : ""}">${s}</div>`;
+}
+function renderList() {
+  const term = $("search").value.trim().toLowerCase();
+  let rows = books.filter((b) => {
+    if (curFilter === "in" && b.status !== "in") return false;
+    if (curFilter === "out" && b.status !== "out") return false;
+    if (term && !((b.title || "").toLowerCase().includes(term) || (b.authors || "").toLowerCase().includes(term))) return false;
+    return true;
+  });
+  if (!rows.length) {
+    $("list").innerHTML = books.length
+      ? `<div class="empty"><div class="big">Nothing matches</div>Try a different search or filter.</div>`
+      : `<div class="empty"><div class="big">No books yet</div>Tap <b>Scan</b> to add your first one.</div>`;
+    return;
+  }
+  $("list").innerHTML = rows.map((b) => `
+    <div class="book" data-id="${b.id}">
+      ${coverHtml(b)}
+      <div class="bmeta">
+        <p class="btitle">${esc(b.title || "Untitled")}</p>
+        <p class="bauthor">${esc(b.authors || "Unknown author")}</p>
+        <span class="pill ${b.status === "out" ? "out" : "in"}"><span class="dot"></span>${b.status === "out" ? "Checked out" : "Available"}</span>
+        ${dueLine(b)}
+      </div>
+    </div>`).join("");
+  document.querySelectorAll(".book").forEach((el) =>
+    el.onclick = () => openBook(books.find((b) => b.id === el.dataset.id)));
+}
+function updateCounts() {
+  const out = books.filter((b) => b.status === "out").length;
+  $("count").textContent = `${books.length} book${books.length === 1 ? "" : "s"} · ${out} out`;
+  $("dbcount").textContent = `Currently ${books.length} catalogued.`;
+}
+function renderStaff() {
+  $("staffList").innerHTML = settings.staff.length
+    ? settings.staff.map((n, i) => `<div class="nametag"><span>${esc(n)}</span><button data-i="${i}" title="Remove">✕</button></div>`).join("")
+    : `<p class="sub" style="margin:0">No names yet.</p>`;
+  document.querySelectorAll("#staffList button").forEach((b) =>
+    b.onclick = () => { const s = [...settings.staff]; s.splice(+b.dataset.i, 1); saveSettings({ staff: s }); });
+}
+
+// ============================================================
+// Settings writes
+// ============================================================
+async function saveSettings(patch) {
+  try { await setDoc(settingsRef, { ...settings, ...patch }, { merge: true }); }
+  catch (e) { toast("Couldn't save"); }
+}
+$("addName").onclick = () => {
+  const n = $("newName").value.trim();
+  if (!n) return;
+  if (settings.staff.includes(n)) { toast("Already added"); return; }
+  saveSettings({ staff: [...settings.staff, n].sort((a, b) => a.localeCompare(b)) });
+  $("newName").value = "";
+};
+$("newName").addEventListener("keydown", (e) => { if (e.key === "Enter") $("addName").click(); });
+$("savePin").onclick = () => { saveSettings({ pin: $("pinSet").value.trim() }); toast("Saved"); };
+
+// ============================================================
+// Book action sheet (check out / in / remove)
+// ============================================================
+function closeSheet() { $("scrim").classList.remove("show"); $("sheet").innerHTML = ""; }
+$("scrim").onclick = (e) => { if (e.target === $("scrim")) closeSheet(); };
+
+function staffOptions(selected) {
+  const opts = settings.staff.map((n) => `<option ${n === selected ? "selected" : ""}>${esc(n)}</option>`).join("");
+  return `<option value="" disabled ${selected ? "" : "selected"}>Select a name…</option>${opts}<option value="__other">Someone else…</option>`;
+}
+function plusDays(n) {
+  const d = new Date(); d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+function openBook(b) {
+  if (!b) return;
+  const head = `
+    <div class="grab"></div>
+    <div class="bighead">
+      ${coverHtml(b)}
+      <div><h3>${esc(b.title || "Untitled")}</h3><p class="sub">${esc(b.authors || "Unknown author")}</p></div>
+    </div>`;
+
+  if (b.status === "out") {
+    $("sheet").innerHTML = head + `
+      <p class="sub">Checked out by <b>${esc(b.borrower || "someone")}</b>${b.dueDate ? ` · due ${esc(b.dueDate)}` : ""}.</p>
+      <div class="actions">
+        <button class="btn primary block" id="doCheckin">Check it back in</button>
+        <button class="btn danger block" id="doRemove">Remove from library</button>
+      </div>`;
+    $("doCheckin").onclick = () => checkin(b);
+  } else {
+    const hasStaff = settings.staff.length > 0;
+    $("sheet").innerHTML = head + `
+      <label class="fld">Checked out by</label>
+      ${hasStaff
+        ? `<select id="who">${staffOptions("")}</select><input class="txt" id="whoOther" placeholder="Type a name" style="display:none;margin-top:8px">`
+        : `<input class="txt" id="whoOther" placeholder="Type a name">`}
+      <label class="fld">Due date (optional)</label>
+      <input class="date" id="due" type="date" value="${plusDays(14)}">
+      <div class="actions">
+        <button class="btn primary block" id="doCheckout">Check out</button>
+        <button class="btn danger block" id="doRemove">Remove from library</button>
+      </div>`;
+    const sel = $("who");
+    if (sel) sel.onchange = () => { $("whoOther").style.display = sel.value === "__other" ? "block" : "none"; };
+    $("doCheckout").onclick = () => checkout(b);
+  }
+  $("doRemove").onclick = () => removeBook(b);
+  $("scrim").classList.add("show");
+}
+
+async function checkout(b) {
+  let who = "";
+  const sel = $("who");
+  if (sel && sel.value && sel.value !== "__other") who = sel.value;
+  else who = ($("whoOther")?.value || "").trim();
+  if (!who) { toast("Pick or type a name"); return; }
+  const due = $("due").value || "";
+  try {
+    await updateDoc(doc(db, "books", b.id), {
+      status: "out", borrower: who, dueDate: due, checkedOutAt: serverTimestamp()
+    });
+    logEvent("out", b, who);
+    closeSheet(); toast(`Checked out to ${who}`);
+  } catch (e) { toast("Failed — try again"); }
+}
+async function checkin(b) {
+  try {
+    await updateDoc(doc(db, "books", b.id), {
+      status: "in", borrower: "", dueDate: "", checkedOutAt: null
+    });
+    logEvent("in", b, b.borrower || "");
+    closeSheet(); toast("Checked in");
+  } catch (e) { toast("Failed — try again"); }
+}
+async function removeBook(b) {
+  if (!confirm(`Remove "${b.title}" from the library?`)) return;
+  try { await deleteDoc(doc(db, "books", b.id)); closeSheet(); toast("Removed"); }
+  catch (e) { toast("Failed — try again"); }
+}
+function logEvent(action, b, person) {
+  addDoc(logCol, { at: serverTimestamp(), action, isbn: b.isbn || "", title: b.title || "", person: person || "" }).catch(() => {});
+}
+
+// ============================================================
+// Add-a-book sheet (after scanning a new ISBN)
+// ============================================================
+function openAdd(isbn, meta) {
+  $("sheet").innerHTML = `
+    <div class="grab"></div>
+    <div class="bighead">
+      ${meta.cover ? `<div class="cover"><img src="${esc(meta.cover)}" onerror="this.parentNode.textContent='📖'"></div>` : `<div class="cover">📖</div>`}
+      <div><h3>${esc(meta.title || "New book")}</h3><p class="sub">${esc(meta.authors || "")}</p></div>
+    </div>
+    <p class="sub">Add this to the library? You can fix the details first.</p>
+    <label class="fld">Title</label>
+    <input class="txt" id="addTitle" value="${esc(meta.title || "")}">
+    <label class="fld">Author(s)</label>
+    <input class="txt" id="addAuthors" value="${esc(meta.authors || "")}">
+    <div class="actions">
+      <button class="btn primary block" id="doAdd">Add to library</button>
+      <button class="btn ghost block" id="cancelAdd">Cancel</button>
+    </div>`;
+  $("cancelAdd").onclick = closeSheet;
+  $("doAdd").onclick = async () => {
+    const title = $("addTitle").value.trim() || "Untitled";
+    const authors = $("addAuthors").value.trim();
+    try {
+      await addDoc(booksCol, {
+        isbn, title, titleLower: title.toLowerCase(), authors,
+        cover: meta.cover || "", status: "in", borrower: "", dueDate: "",
+        checkedOutAt: null, addedAt: serverTimestamp()
+      });
+      logEvent("added", { isbn, title }, "");
+      closeSheet(); toast("Added to library"); showTab("lib");
+    } catch (e) { toast("Failed — try again"); }
+  };
+  $("scrim").classList.add("show");
+}
+
+// ============================================================
+// ISBN handling + metadata lookup
+// ============================================================
+function normIsbn(s) { return (s || "").replace(/[^0-9Xx]/g, ""); }
+
+async function handleISBN(raw) {
+  const isbn = normIsbn(raw);
+  if (isbn.length < 8) { toast("That doesn't look like a book barcode"); return; }
+  const existing = books.find((b) => normIsbn(b.isbn) === isbn);
+  if (existing) { openBook(existing); return; }     // already in library → check in/out
+  toast("Looking up…");
+  const meta = await lookupISBN(isbn);
+  openAdd(isbn, meta);
+}
+
+async function lookupISBN(isbn) {
+  // 1) Google Books (single call: title + authors + cover)
+  try {
+    const r = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`);
+    const j = await r.json();
+    if (j.totalItems > 0) {
+      const v = j.items[0].volumeInfo || {};
+      const cover = ((v.imageLinks && (v.imageLinks.thumbnail || v.imageLinks.smallThumbnail)) || "").replace("http://", "https://");
+      if (v.title) return { title: v.title, authors: (v.authors || []).join(", "), cover };
+    }
+  } catch {}
+  // 2) Open Library fallback
+  try {
+    const r = await fetch(`https://openlibrary.org/isbn/${isbn}.json`);
+    if (r.ok) {
+      const d = await r.json();
+      let authors = [];
+      for (const a of (d.authors || [])) {
+        try { const ar = await fetch(`https://openlibrary.org${a.key}.json`); authors.push((await ar.json()).name); } catch {}
+      }
+      return { title: d.title || "", authors: authors.join(", "), cover: `https://covers.openlibrary.org/b/isbn/${isbn}-M.jpg` };
+    }
+  } catch {}
+  return { title: "", authors: "", cover: `https://covers.openlibrary.org/b/isbn/${isbn}-M.jpg` };
+}
+
+// ============================================================
+// Camera scanning (html5-qrcode)
+// ============================================================
+const Html5Qrcode = window.Html5Qrcode;
+const FMT = window.Html5QrcodeSupportedFormats;
+
+async function startScan() {
+  if (scanning) return;
+  if (!Html5Qrcode) { toast("Scanner failed to load"); return; }
+  scanner = new Html5Qrcode("reader", { verbose: false });
+  const config = { fps: 10, qrbox: { width: 260, height: 150 } };
+  if (FMT) config.formatsToSupport = [FMT.EAN_13, FMT.EAN_8, FMT.UPC_A, FMT.UPC_E];
+  try {
+    await scanner.start({ facingMode: "environment" }, config,
+      (text) => { stopScan().then(() => handleISBN(text)); },
+      () => {} // ignore per-frame "not found" noise
+    );
+    scanning = true;
+    $("scanBtn").textContent = "Stop camera";
+    $("scanHint").textContent = "Hold steady — it scans automatically.";
+  } catch (e) {
+    toast("Couldn't open camera — use manual entry");
+    $("scanHint").textContent = "Camera unavailable. Enter the barcode digits below instead.";
+  }
+}
+async function stopScan() {
+  if (scanner && scanning) {
+    try { await scanner.stop(); scanner.clear(); } catch {}
+  }
+  scanning = false;
+  $("scanBtn").textContent = "Start camera";
+}
+$("scanBtn").onclick = () => (scanning ? stopScan() : startScan());
+$("manualBtn").onclick = () => { const v = $("manualIsbn").value.trim(); if (v) { handleISBN(v); $("manualIsbn").value = ""; } };
+$("manualIsbn").addEventListener("keydown", (e) => { if (e.key === "Enter") $("manualBtn").click(); });
+
+// ============================================================
+// Tabs / navigation
+// ============================================================
+function showTab(tab) {
+  activeTab = tab;
+  $("libview").style.display = tab === "lib" ? "block" : "none";
+  $("scanview").style.display = tab === "scan" ? "block" : "none";
+  $("settingsview").style.display = tab === "settings" ? "block" : "none";
+  $("tabLib").classList.toggle("active", tab === "lib");
+  $("tabScan").classList.toggle("active", tab === "scan");
+  $("tabSettings").classList.toggle("active", tab === "settings");
+  if (tab !== "scan") stopScan();
+}
+$("tabLib").onclick = () => showTab("lib");
+$("tabScan").onclick = () => showTab("scan");
+$("tabSettings").onclick = () => showTab("settings");
+$("search").addEventListener("input", renderList);
+document.querySelectorAll(".chip").forEach((c) =>
+  c.onclick = () => {
+    document.querySelectorAll(".chip").forEach((x) => x.classList.remove("active"));
+    c.classList.add("active"); curFilter = c.dataset.filter; renderList();
+  });
+
+// ============================================================
+// Service worker
+// ============================================================
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+}
+</script>
+</body>
+</html>
