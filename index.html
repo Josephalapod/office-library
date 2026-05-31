@@ -16,6 +16,9 @@
 <!-- Barcode scanning (UMD global: Html5Qrcode) -->
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 
+<!-- EmailJS (UMD global: emailjs) — sends owner notifications with no backend -->
+<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+
 <style>
   :root{
     --paper:#f7f3ec;
@@ -264,6 +267,16 @@
         </div>
       </div>
       <div class="card">
+        <h2>Book owners</h2>
+        <p class="sub">People who lend books. The owner is emailed automatically when their book is checked out.</p>
+        <div id="ownerList"></div>
+        <div class="rowadd" style="flex-wrap:wrap">
+          <input id="newOwnerName" type="text" placeholder="Owner name" style="flex:1 1 100%" />
+          <input id="newOwnerEmail" type="email" placeholder="Owner email" style="flex:1 1 0" />
+          <button class="btn primary" id="addOwnerBtn">Add</button>
+        </div>
+      </div>
+      <div class="card">
         <h2>Access PIN</h2>
         <p class="sub">Optional soft lock so passersby don't open the app. Leave blank for none. (Not real security — anyone with the link can still reach the data.)</p>
         <div class="rowadd">
@@ -274,6 +287,7 @@
       <div class="card">
         <h2>About</h2>
         <p class="sub" style="margin:0 0 8px">Books live in your Firestore database and sync to every phone instantly. <span id="dbcount"></span></p>
+        <p class="sub" style="margin:0 0 8px">Email notifications: <span id="emailStatus"></span></p>
         <p class="sub" style="margin:0">App version <span id="appVersion"></span></p>
       </div>
     </section>
@@ -335,6 +349,22 @@ const firebaseConfig = {
 };
 /* ============================================================ */
 
+/* ============================================================
+   2) EMAIL NOTIFICATIONS (optional) ← PASTE YOUR EMAILJS IDs HERE
+   From the EmailJS dashboard (dashboard.emailjs.com):
+     • publicKey  → Account → General → Public Key
+     • serviceId  → Email Services → your service
+     • templateId → Email Templates → your template
+   Leave the PASTE_ values as-is to keep notifications off — the
+   rest of the app works fine without them.
+   ============================================================ */
+const emailConfig = {
+  publicKey: "WR_8JCEiExGYrE0kM",
+  serviceId: "service_2tulfcq",
+  templateId: "template_r6qdskf"
+};
+/* ============================================================ */
+
 // --- Tiny DOM helpers ---
 const $ = (id) => document.getElementById(id);
 const esc = (s) => (s || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -376,9 +406,46 @@ const booksCol = collection(db, "books");
 const logCol = collection(db, "log");
 const settingsRef = doc(db, "meta", "settings");
 
+// --- Email notifications (EmailJS) ---
+function emailReady() {
+  return window.emailjs &&
+    emailConfig.publicKey && !emailConfig.publicKey.startsWith("PASTE") &&
+    emailConfig.serviceId && !emailConfig.serviceId.startsWith("PASTE") &&
+    emailConfig.templateId && !emailConfig.templateId.startsWith("PASTE");
+}
+if (emailReady()) {
+  try { window.emailjs.init({ publicKey: emailConfig.publicKey }); } catch (e) {}
+}
+function ownerEmail(name) {
+  const o = (settings.owners || []).find((x) => x.name === name);
+  return o && o.email ? o.email : "";
+}
+// Notify the owner that their book was checked out. Never blocks checkout.
+async function sendOwnerEmail(book, borrower, due) {
+  if (!emailReady()) return;
+  const to = ownerEmail(book.owner);
+  if (!to) return;                       // owner has no email on file → skip silently
+  const params = {
+    to_email: to,
+    to_name: book.owner || "",
+    owner_name: book.owner || "",
+    book_title: book.title || "Untitled",
+    book_author: book.authors || "",
+    borrower: borrower || "someone",
+    due_date: due || "no date set",
+    checkout_date: new Date().toLocaleDateString()
+  };
+  try {
+    await window.emailjs.send(emailConfig.serviceId, emailConfig.templateId, params);
+    toast(`Notified ${book.owner}`);
+  } catch (e) {
+    toast("Checked out (owner email didn't send)");
+  }
+}
+
 // --- App state ---
 let books = [];            // live mirror of the books collection
-let settings = { staff: [], pin: "", themes: [] };
+let settings = { staff: [], pin: "", themes: [], owners: [] };
 // Starting set of themes for a therapy library; fully editable in Settings.
 const DEFAULT_THEMES = [
   "Anxiety", "Depression", "Trauma & PTSD", "Grief & Loss",
@@ -393,7 +460,7 @@ function effectiveThemes() {
 let activeTab = "lib";
 let curFilter = "all";
 let curTheme = "";            // "" = all themes
-const APP_VERSION = "1.0";    // shown in Settings → About; bump when the app changes
+const APP_VERSION = "1.1";    // shown in Settings → About; bump when the app changes
 let scanner = null;        // Html5Qrcode instance
 let scanning = false;
 
@@ -410,13 +477,15 @@ onAuthStateChanged(auth, (user) => {
 });
 
 function startListeners() {
-  // Settings (staff list, themes, PIN)
+  // Settings (staff list, themes, owners, PIN)
   onSnapshot(settingsRef, (snap) => {
-    settings = snap.exists() ? snap.data() : { staff: [], pin: "", themes: [] };
+    settings = snap.exists() ? snap.data() : { staff: [], pin: "", themes: [], owners: [] };
     settings.staff = settings.staff || [];
     settings.themes = settings.themes || [];
+    settings.owners = settings.owners || [];
     renderStaff();
     renderThemes();
+    renderOwners();
     $("pinSet").value = settings.pin || "";
     maybeGate();
   }, () => { maybeGate(); });
@@ -552,6 +621,20 @@ function renderThemes() {
   document.querySelectorAll("#themeList button").forEach((b) =>
     b.onclick = () => { const t = [...effectiveThemes()]; t.splice(+b.dataset.i, 1); saveSettings({ themes: t }); });
 }
+function renderOwners() {
+  const owners = settings.owners || [];
+  $("ownerList").innerHTML = owners.length
+    ? owners.map((o, i) =>
+        `<div class="nametag"><span>${esc(o.name)}${o.email ? ` <span style="color:var(--ink-soft);font-weight:400">· ${esc(o.email)}</span>` : ` <span style="color:var(--clay);font-weight:400">· no email</span>`}</span><button data-i="${i}" title="Remove">✕</button></div>`).join("")
+    : `<p class="sub" style="margin:0">No owners yet.</p>`;
+  document.querySelectorAll("#ownerList button").forEach((b) =>
+    b.onclick = () => { const o = [...(settings.owners || [])]; o.splice(+b.dataset.i, 1); saveSettings({ owners: o }); });
+  // also refresh the notification status line
+  const st = $("emailStatus");
+  if (st) st.innerHTML = emailReady()
+    ? `<b style="color:var(--sage)">On</b>`
+    : `<b style="color:var(--clay)">Off</b> — add your EmailJS keys in index.html to enable`;
+}
 
 // ============================================================
 // Settings writes
@@ -577,6 +660,17 @@ $("addTheme").onclick = () => {
   $("newTheme").value = "";
 };
 $("newTheme").addEventListener("keydown", (e) => { if (e.key === "Enter") $("addTheme").click(); });
+$("addOwnerBtn").onclick = () => {
+  const name = $("newOwnerName").value.trim();
+  const email = $("newOwnerEmail").value.trim();
+  if (!name) { toast("Enter an owner name"); return; }
+  if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { toast("That email looks off"); return; }
+  const owners = settings.owners || [];
+  if (owners.some((o) => o.name.toLowerCase() === name.toLowerCase())) { toast("Already added"); return; }
+  saveSettings({ owners: [...owners, { name, email }].sort((a, b) => a.name.localeCompare(b.name)) });
+  $("newOwnerName").value = ""; $("newOwnerEmail").value = "";
+};
+$("newOwnerEmail").addEventListener("keydown", (e) => { if (e.key === "Enter") $("addOwnerBtn").click(); });
 $("savePin").onclick = () => { saveSettings({ pin: $("pinSet").value.trim() }); toast("Saved"); };
 
 // ============================================================
@@ -661,8 +755,7 @@ function openEdit(b) {
     <label class="fld">Author(s)</label>
     <input class="txt" id="eAuthors" value="${esc(b.authors || "")}">
     <label class="fld">Book owner</label>
-    <input class="txt" id="eOwner" list="ownerSuggest" value="${esc(b.owner || "")}" placeholder="Whose book is this?">
-    ${staffDatalist()}
+    ${ownerSelect("eOwner", b.owner || "")}
     <label class="fld">Theme</label>
     ${themeSelect("eTheme", b.theme || "")}
     <input class="txt" id="eThemeOther" placeholder="Type a theme" style="display:none;margin-top:8px">
@@ -670,11 +763,13 @@ function openEdit(b) {
       <button class="btn primary block" id="saveEdit">Save changes</button>
       <button class="btn ghost block" id="cancelEdit">Cancel</button>
     </div>`;
+  wireOwnerSelect("eOwner");
   const tsel = $("eTheme");
   tsel.onchange = () => { $("eThemeOther").style.display = tsel.value === "__other" ? "block" : "none"; };
   $("cancelEdit").onclick = () => openBook(b);
   $("saveEdit").onclick = async () => {
     const title = $("eTitle").value.trim() || "Untitled";
+    const owner = await resolveOwner("eOwner");
     let theme = tsel.value === "__other" ? $("eThemeOther").value.trim() : tsel.value;
     if (tsel.value === "__other" && theme && !effectiveThemes().some((x) => x.toLowerCase() === theme.toLowerCase())) {
       saveSettings({ themes: [...effectiveThemes(), theme] });
@@ -683,7 +778,7 @@ function openEdit(b) {
       await updateDoc(doc(db, "books", b.id), {
         title, titleLower: title.toLowerCase(),
         authors: $("eAuthors").value.trim(),
-        owner: $("eOwner").value.trim(), theme: theme || ""
+        owner, theme: theme || ""
       });
       closeSheet(); toast("Saved");
     } catch (e) { toast("Failed — try again"); }
@@ -704,6 +799,8 @@ async function checkout(b) {
     });
     logEvent("out", b, who);
     closeSheet(); toast(`Checked out to ${who}`);
+    // Notify the owner (runs in the background; never blocks the checkout)
+    sendOwnerEmail(b, who, due);
   } catch (e) { toast("Failed — try again"); }
 }
 async function checkin(b) {
@@ -731,8 +828,40 @@ function themeSelect(id, selected) {
   const opts = effectiveThemes().map((t) => `<option ${t === selected ? "selected" : ""}>${esc(t)}</option>`).join("");
   return `<select id="${id}"><option value="" ${selected ? "" : "selected"}>No theme</option>${opts}<option value="__other">Other…</option></select>`;
 }
-function staffDatalist() {
-  return `<datalist id="ownerSuggest">${settings.staff.map((n) => `<option value="${esc(n)}">`).join("")}</datalist>`;
+// Owner picker: dropdown of known owners + an inline "add new owner" option.
+function ownerSelect(id, selected) {
+  const owners = settings.owners || [];
+  let opts = owners.map((o) => `<option value="${esc(o.name)}" ${o.name === selected ? "selected" : ""}>${esc(o.name)}</option>`).join("");
+  // If this book's owner isn't a known owner (e.g. older free-text entry), keep it selectable.
+  if (selected && !owners.some((o) => o.name === selected)) {
+    opts = `<option value="${esc(selected)}" selected>${esc(selected)} (no email)</option>` + opts;
+  }
+  return `<select id="${id}">
+      <option value="" ${selected ? "" : "selected"}>— No owner —</option>
+      ${opts}
+      <option value="__new">＋ Add a new owner…</option>
+    </select>
+    <div id="${id}_new" style="display:none;margin-top:8px">
+      <input class="txt" id="${id}_name" placeholder="New owner name">
+      <input class="txt" id="${id}_email" type="email" placeholder="New owner email" style="margin-top:8px">
+    </div>`;
+}
+function wireOwnerSelect(id) {
+  const sel = $(id);
+  sel.onchange = () => { $(id + "_new").style.display = sel.value === "__new" ? "block" : "none"; };
+}
+// Returns the owner name to store; if a new owner was typed, persists it to settings first.
+async function resolveOwner(id) {
+  const sel = $(id);
+  if (sel.value !== "__new") return sel.value;          // existing owner or "" (none)
+  const name = $(id + "_name").value.trim();
+  const email = $(id + "_email").value.trim();
+  if (!name) return "";
+  const owners = settings.owners || [];
+  if (!owners.some((o) => o.name.toLowerCase() === name.toLowerCase())) {
+    await saveSettings({ owners: [...owners, { name, email }].sort((a, b) => a.name.localeCompare(b.name)) });
+  }
+  return name;
 }
 
 function openAdd(isbn, meta) {
@@ -748,8 +877,7 @@ function openAdd(isbn, meta) {
     <label class="fld">Author(s)</label>
     <input class="txt" id="addAuthors" value="${esc(meta.authors || "")}">
     <label class="fld">Book owner</label>
-    <input class="txt" id="addOwner" list="ownerSuggest" placeholder="Whose book is this? (e.g. the office, or a name)">
-    ${staffDatalist()}
+    ${ownerSelect("addOwner", "")}
     <label class="fld">Theme</label>
     ${themeSelect("addTheme2", "")}
     <input class="txt" id="addThemeOther" placeholder="Type a theme" style="display:none;margin-top:8px">
@@ -757,13 +885,14 @@ function openAdd(isbn, meta) {
       <button class="btn primary block" id="doAdd">Add to library</button>
       <button class="btn ghost block" id="cancelAdd">Cancel</button>
     </div>`;
+  wireOwnerSelect("addOwner");
   const tsel = $("addTheme2");
   tsel.onchange = () => { $("addThemeOther").style.display = tsel.value === "__other" ? "block" : "none"; };
   $("cancelAdd").onclick = closeSheet;
   $("doAdd").onclick = async () => {
     const title = $("addTitle").value.trim() || "Untitled";
     const authors = $("addAuthors").value.trim();
-    const owner = $("addOwner").value.trim();
+    const owner = await resolveOwner("addOwner");
     let theme = tsel.value === "__other" ? $("addThemeOther").value.trim() : tsel.value;
     if (tsel.value === "__other" && theme && !effectiveThemes().some((x) => x.toLowerCase() === theme.toLowerCase())) {
       saveSettings({ themes: [...effectiveThemes(), theme] });   // remember newly typed themes
