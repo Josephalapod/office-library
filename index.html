@@ -247,7 +247,7 @@
       <p class="scan-hint" id="scanHint">Point the camera at a book's barcode.</p>
       <div class="divider">or enter the barcode number</div>
       <div class="manual">
-        <input id="manualIsbn" type="text" inputmode="numeric" placeholder="ISBN / barcode digits" />
+        <input id="manualIsbn" type="text" inputmode="numeric" placeholder="ISBN or ISSN digits" />
         <button class="btn ghost" id="manualBtn">Look&nbsp;up</button>
       </div>
       <div class="divider">no barcode at all?</div>
@@ -484,7 +484,7 @@ let activeTab = "lib";
 let curFilter = "all";
 let curTheme = "";            // "" = all themes
 let coverData = "";           // cover image (URL or compressed data URL) for the open sheet
-const APP_VERSION = "1.6";    // shown in Settings → About; bump when the app changes
+const APP_VERSION = "1.7";    // shown in Settings → About; bump when the app changes
 let scanner = null;        // Html5Qrcode instance
 let scanning = false;
 
@@ -1012,18 +1012,53 @@ function openAdd(isbn, meta) {
 }
 
 // ============================================================
-// ISBN handling + metadata lookup
+// Code handling + metadata lookup (ISBN for books, ISSN for journals)
 // ============================================================
-function normIsbn(s) { return (s || "").replace(/[^0-9Xx]/g, ""); }
+function normIsbn(s) { return (s || "").replace(/[^0-9Xx]/g, "").toUpperCase(); }
+
+// ISSN check digit from the 7 leading digits
+function issnCheckDigit(d7) {
+  let sum = 0;
+  for (let i = 0; i < 7; i++) sum += parseInt(d7[i], 10) * (8 - i);
+  const c = (11 - (sum % 11)) % 11;
+  return c === 10 ? "X" : String(c);
+}
+function prettyIssn(issn) {
+  return issn.length === 8 ? issn.slice(0, 4) + "-" + issn.slice(4) : issn;
+}
+// Figure out whether a scanned/typed code is a journal (ISSN) or a book (ISBN)
+function classifyCode(raw) {
+  const s = normIsbn(raw);
+  if (s.length === 13 && s.startsWith("977")) {        // ISSN barcode (EAN-13, 977 prefix)
+    const base7 = s.slice(3, 10);
+    return { kind: "issn", code: base7 + issnCheckDigit(base7) };
+  }
+  if (s.length === 8) return { kind: "issn", code: s }; // bare ISSN (7 digits + check)
+  return { kind: "isbn", code: s };                     // ISBN-10 or ISBN-13
+}
 
 async function handleISBN(raw) {
-  const isbn = normIsbn(raw);
-  if (isbn.length < 8) { toast("That doesn't look like a book barcode"); return; }
-  const existing = books.find((b) => normIsbn(b.isbn) === isbn);
+  const s = normIsbn(raw);
+  if (s.length < 8) { toast("That doesn't look like a book or journal barcode"); return; }
+  const { kind, code } = classifyCode(raw);
+  const existing = books.find((b) => normIsbn(b.isbn) === normIsbn(code));
   if (existing) { openBook(existing); return; }     // already in library → check in/out
-  toast("Looking up…");
-  const meta = await lookupISBN(isbn);
-  openAdd(isbn, meta);
+  toast(kind === "issn" ? "Looking up journal…" : "Looking up…");
+  const meta = kind === "issn" ? await lookupISSN(code) : await lookupISBN(code);
+  openAdd(code, meta);
+}
+
+// Journals: Crossref journals endpoint (free, no key). Journals rarely have covers.
+async function lookupISSN(issn) {
+  try {
+    const r = await fetch(`https://api.crossref.org/journals/${prettyIssn(issn)}`);
+    if (r.ok) {
+      const j = await r.json();
+      const m = j.message || {};
+      if (m.title) return { title: m.title, authors: m.publisher || "", cover: "" };
+    }
+  } catch {}
+  return { title: "", authors: "", cover: "" };   // not found → blank form to fill in
 }
 
 async function lookupISBN(isbn) {
