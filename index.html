@@ -484,7 +484,7 @@ let activeTab = "lib";
 let curFilter = "all";
 let curTheme = "";            // "" = all themes
 let coverData = "";           // cover image (URL or compressed data URL) for the open sheet
-const APP_VERSION = "1.5";    // shown in Settings → About; bump when the app changes
+const APP_VERSION = "1.6";    // shown in Settings → About; bump when the app changes
 let scanner = null;        // Html5Qrcode instance
 let scanning = false;
 
@@ -928,24 +928,24 @@ function coverField() {
     <div class="coverpick">
       <div class="coverprev" id="coverPrev">📖</div>
       <div class="coverbtns">
-        <button type="button" class="btn ghost" id="coverBtn">Add photo</button>
+        <button type="button" class="btn ghost" id="coverCam">📷 Take photo</button>
+        <button type="button" class="btn ghost" id="coverBtn">Choose photo</button>
         <button type="button" class="btn danger" id="coverClear" style="display:none">Remove</button>
       </div>
       <input type="file" id="coverInput" accept="image/*" style="display:none">
+      <input type="file" id="coverCamInput" accept="image/*" capture="environment" style="display:none">
     </div>`;
 }
 function refreshCoverPrev() {
   $("coverPrev").innerHTML = coverData ? `<img src="${coverData}" alt="">` : "📖";
-  $("coverBtn").textContent = coverData ? "Change photo" : "Add photo";
   $("coverClear").style.display = coverData ? "" : "none";
 }
 function wireCover(initial) {
   coverData = initial || "";
   refreshCoverPrev();
-  const input = $("coverInput");
-  $("coverBtn").onclick = () => input.click();
-  $("coverClear").onclick = () => { coverData = ""; refreshCoverPrev(); };
-  input.onchange = async () => {
+  const gallery = $("coverInput");
+  const cam = $("coverCamInput");
+  const handle = async (input) => {
     const f = input.files && input.files[0];
     if (!f) return;
     toast("Processing photo…");
@@ -955,6 +955,11 @@ function wireCover(initial) {
     } catch (e) { toast("Couldn't read that image"); }
     input.value = "";
   };
+  $("coverCam").onclick = () => cam.click();      // opens the camera directly
+  $("coverBtn").onclick = () => gallery.click();  // opens the photo library
+  $("coverClear").onclick = () => { coverData = ""; refreshCoverPrev(); };
+  cam.onchange = () => handle(cam);
+  gallery.onchange = () => handle(gallery);
 }
 
 function openAdd(isbn, meta) {
