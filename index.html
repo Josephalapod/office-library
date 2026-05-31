@@ -420,26 +420,41 @@ function ownerEmail(name) {
   const o = (settings.owners || []).find((x) => x.name === name);
   return o && o.email ? o.email : "";
 }
-// Notify the owner that their book was checked out. Never blocks checkout.
-async function sendOwnerEmail(book, borrower, due) {
+// Notify the owner when their book changes hands. Never blocks the action.
+// event: "out" (checked out) or "in" (checked back in). person = who did it.
+async function sendOwnerEmail(book, event, person, due) {
   if (!emailReady()) return;
   const to = ownerEmail(book.owner);
   if (!to) return;                       // owner has no email on file → skip silently
+  const title = book.title || "Untitled";
+  const today = new Date().toLocaleDateString();
+  let summary, details;
+  if (event === "out") {
+    summary = `Your book "${title}" has just been checked out by ${person || "someone"}.`;
+    details = `Date: ${today}\nDue back: ${due || "no date set"}\n\n` +
+      `As a reminder, whoever checks out a book accepts responsibility for its return and for replacement if it's lost or damaged.`;
+  } else {
+    summary = `Your book "${title}" has just been checked back in${person ? ` by ${person}` : ""}.`;
+    details = `Date: ${today}\n\nIt's back on the shelf and available again.`;
+  }
   const params = {
     to_email: to,
     to_name: book.owner || "",
     owner_name: book.owner || "",
-    book_title: book.title || "Untitled",
+    book_title: title,
     book_author: book.authors || "",
-    borrower: borrower || "someone",
+    borrower: person || "someone",
     due_date: due || "no date set",
-    checkout_date: new Date().toLocaleDateString()
+    checkout_date: today,
+    action: event === "out" ? "checked out" : "checked back in",
+    summary,
+    details
   };
   try {
     await window.emailjs.send(emailConfig.serviceId, emailConfig.templateId, params);
-    toast(`Notified ${book.owner}`);
+    toast(event === "out" ? `Notified ${book.owner}` : `Owner notified of return`);
   } catch (e) {
-    toast("Checked out (owner email didn't send)");
+    toast(event === "out" ? "Checked out (email didn't send)" : "Checked in (email didn't send)");
   }
 }
 
@@ -460,7 +475,7 @@ function effectiveThemes() {
 let activeTab = "lib";
 let curFilter = "all";
 let curTheme = "";            // "" = all themes
-const APP_VERSION = "1.1";    // shown in Settings → About; bump when the app changes
+const APP_VERSION = "1.2";    // shown in Settings → About; bump when the app changes
 let scanner = null;        // Html5Qrcode instance
 let scanning = false;
 
@@ -800,16 +815,19 @@ async function checkout(b) {
     logEvent("out", b, who);
     closeSheet(); toast(`Checked out to ${who}`);
     // Notify the owner (runs in the background; never blocks the checkout)
-    sendOwnerEmail(b, who, due);
+    sendOwnerEmail(b, "out", who, due);
   } catch (e) { toast("Failed — try again"); }
 }
 async function checkin(b) {
+  const hadIt = b.borrower || "";
   try {
     await updateDoc(doc(db, "books", b.id), {
       status: "in", borrower: "", dueDate: "", checkedOutAt: null
     });
-    logEvent("in", b, b.borrower || "");
+    logEvent("in", b, hadIt);
     closeSheet(); toast("Checked in");
+    // Notify the owner the book is back (background; never blocks check-in)
+    sendOwnerEmail(b, "in", hadIt, "");
   } catch (e) { toast("Failed — try again"); }
 }
 async function removeBook(b) {
