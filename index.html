@@ -180,6 +180,12 @@
   select:focus,input.txt:focus,input.date:focus{outline:none;border-color:var(--sage-2);box-shadow:0 0 0 3px var(--sage-tint)}
   .actions{display:flex;flex-direction:column;gap:10px;margin-top:20px}
   .btn:disabled{opacity:.45;cursor:not-allowed}
+  /* cover photo picker */
+  .coverpick{display:flex;align-items:center;gap:13px;margin-top:6px}
+  .coverprev{width:58px;height:80px;border-radius:8px;background:var(--sage-tint);display:flex;align-items:center;justify-content:center;font-size:24px;color:var(--sage-2);overflow:hidden;flex:none}
+  .coverprev img{width:100%;height:100%;object-fit:cover}
+  .coverbtns{display:flex;flex-direction:column;gap:6px}
+  .coverbtns .btn{padding:9px 13px;font-size:13px}
   /* book meta tags (theme + owner) */
   .metarow{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
   .tag{display:inline-flex;align-items:center;font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:999px;letter-spacing:.2px}
@@ -477,7 +483,8 @@ function effectiveThemes() {
 let activeTab = "lib";
 let curFilter = "all";
 let curTheme = "";            // "" = all themes
-const APP_VERSION = "1.4";    // shown in Settings → About; bump when the app changes
+let coverData = "";           // cover image (URL or compressed data URL) for the open sheet
+const APP_VERSION = "1.5";    // shown in Settings → About; bump when the app changes
 let scanner = null;        // Html5Qrcode instance
 let scanning = false;
 
@@ -777,6 +784,7 @@ function openEdit(b) {
     <input class="txt" id="eTitle" value="${esc(b.title || "")}">
     <label class="fld">Author(s)</label>
     <input class="txt" id="eAuthors" value="${esc(b.authors || "")}">
+    ${coverField()}
     <label class="fld">Book owner</label>
     ${ownerSelect("eOwner", b.owner || "")}
     <label class="fld">Theme</label>
@@ -787,6 +795,7 @@ function openEdit(b) {
       <button class="btn ghost block" id="cancelEdit">Cancel</button>
     </div>`;
   wireOwnerSelect("eOwner");
+  wireCover(b.cover || "");
   const tsel = $("eTheme");
   tsel.onchange = () => { $("eThemeOther").style.display = tsel.value === "__other" ? "block" : "none"; };
   $("cancelEdit").onclick = () => openBook(b);
@@ -801,7 +810,7 @@ function openEdit(b) {
       await updateDoc(doc(db, "books", b.id), {
         title, titleLower: title.toLowerCase(),
         authors: $("eAuthors").value.trim(),
-        owner, theme: theme || ""
+        owner, theme: theme || "", cover: coverData || ""
       });
       closeSheet(); toast("Saved");
     } catch (e) { toast("Failed — try again"); }
@@ -890,6 +899,64 @@ async function resolveOwner(id) {
   return name;
 }
 
+// ---- Cover photo picker (shrinks the image on-device and stores it inline) ----
+function resizeImage(file, maxDim, quality) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("read"));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("decode"));
+      img.onload = () => {
+        let { width, height } = img;
+        const scale = Math.min(1, maxDim / Math.max(width, height));
+        width = Math.max(1, Math.round(width * scale));
+        height = Math.max(1, Math.round(height * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = width; canvas.height = height;
+        canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+function coverField() {
+  return `
+    <label class="fld">Cover photo</label>
+    <div class="coverpick">
+      <div class="coverprev" id="coverPrev">📖</div>
+      <div class="coverbtns">
+        <button type="button" class="btn ghost" id="coverBtn">Add photo</button>
+        <button type="button" class="btn danger" id="coverClear" style="display:none">Remove</button>
+      </div>
+      <input type="file" id="coverInput" accept="image/*" style="display:none">
+    </div>`;
+}
+function refreshCoverPrev() {
+  $("coverPrev").innerHTML = coverData ? `<img src="${coverData}" alt="">` : "📖";
+  $("coverBtn").textContent = coverData ? "Change photo" : "Add photo";
+  $("coverClear").style.display = coverData ? "" : "none";
+}
+function wireCover(initial) {
+  coverData = initial || "";
+  refreshCoverPrev();
+  const input = $("coverInput");
+  $("coverBtn").onclick = () => input.click();
+  $("coverClear").onclick = () => { coverData = ""; refreshCoverPrev(); };
+  input.onchange = async () => {
+    const f = input.files && input.files[0];
+    if (!f) return;
+    toast("Processing photo…");
+    try {
+      coverData = await resizeImage(f, 500, 0.7);   // ~500px long edge, well under the doc size limit
+      refreshCoverPrev();
+    } catch (e) { toast("Couldn't read that image"); }
+    input.value = "";
+  };
+}
+
 function openAdd(isbn, meta) {
   $("sheet").innerHTML = `
     <div class="grab"></div>
@@ -902,6 +969,7 @@ function openAdd(isbn, meta) {
     <input class="txt" id="addTitle" value="${esc(meta.title || "")}">
     <label class="fld">Author(s)</label>
     <input class="txt" id="addAuthors" value="${esc(meta.authors || "")}">
+    ${coverField()}
     <label class="fld">Book owner</label>
     ${ownerSelect("addOwner", "")}
     <label class="fld">Theme</label>
@@ -912,6 +980,7 @@ function openAdd(isbn, meta) {
       <button class="btn ghost block" id="cancelAdd">Cancel</button>
     </div>`;
   wireOwnerSelect("addOwner");
+  wireCover(meta.cover || "");
   const tsel = $("addTheme2");
   tsel.onchange = () => { $("addThemeOther").style.display = tsel.value === "__other" ? "block" : "none"; };
   $("cancelAdd").onclick = closeSheet;
@@ -927,7 +996,7 @@ function openAdd(isbn, meta) {
       await addDoc(booksCol, {
         isbn, title, titleLower: title.toLowerCase(), authors,
         owner, theme: theme || "",
-        cover: meta.cover || "", status: "in", borrower: "", dueDate: "",
+        cover: coverData || "", status: "in", borrower: "", dueDate: "",
         checkedOutAt: null, addedAt: serverTimestamp()
       });
       logEvent("added", { isbn, title }, "");
