@@ -102,8 +102,11 @@
 
   /* ---- Scan view ---- */
   .scanview{display:none}
-  #reader{border-radius:var(--radius);overflow:hidden;margin-bottom:14px}
-  #reader:empty{display:none}
+  #reader{border-radius:var(--radius);overflow:hidden;margin-bottom:14px;width:100%}
+  #reader.live{min-height:300px;background:#11140f}
+  #reader:not(.live){height:0;margin:0}
+  #reader video{width:100% !important;height:auto !important;display:block}
+  #reader img[alt="Info icon"]{display:none}
   .scan-hint{text-align:center;color:var(--ink-soft);font-size:14px;margin:10px 0 18px}
   .divider{display:flex;align-items:center;gap:12px;color:var(--ink-soft);font-size:12px;margin:18px 0}
   .divider::before,.divider::after{content:"";flex:1;height:1px;background:var(--line)}
@@ -663,8 +666,21 @@ const FMT = window.Html5QrcodeSupportedFormats;
 async function startScan() {
   if (scanning) return;
   if (!Html5Qrcode) { toast("Scanner failed to load"); return; }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    $("scanHint").textContent = "This phone/browser is blocking camera access here. Use the manual entry box below.";
+    return;
+  }
+  const reader = $("reader");
+  reader.classList.add("live");           // give the box real dimensions BEFORE measuring
   scanner = new Html5Qrcode("reader", { verbose: false });
-  const config = { fps: 10, qrbox: { width: 260, height: 150 } };
+  // Responsive scan box so it never exceeds the container width on small screens
+  const config = {
+    fps: 10,
+    qrbox: (vw, vh) => {
+      const w = Math.max(160, Math.min(vw - 24, 300));
+      return { width: w, height: Math.round(w * 0.55) };
+    }
+  };
   if (FMT) config.formatsToSupport = [FMT.EAN_13, FMT.EAN_8, FMT.UPC_A, FMT.UPC_E];
   try {
     await scanner.start({ facingMode: "environment" }, config,
@@ -675,8 +691,13 @@ async function startScan() {
     $("scanBtn").textContent = "Stop camera";
     $("scanHint").textContent = "Hold steady — it scans automatically.";
   } catch (e) {
-    toast("Couldn't open camera — use manual entry");
-    $("scanHint").textContent = "Camera unavailable. Enter the barcode digits below instead.";
+    reader.classList.remove("live");
+    scanning = false;
+    $("scanBtn").textContent = "Start camera";
+    const msg = (e && (e.name || e.message)) ? `${e.name || ""} ${e.message || ""}`.trim() : "unknown error";
+    // Show the real reason so it can actually be diagnosed.
+    $("scanHint").textContent = "Camera didn't start (" + msg + "). You can still enter the barcode digits below.";
+    toast("Camera unavailable");
   }
 }
 async function stopScan() {
@@ -684,6 +705,7 @@ async function stopScan() {
     try { await scanner.stop(); scanner.clear(); } catch {}
   }
   scanning = false;
+  $("reader").classList.remove("live");
   $("scanBtn").textContent = "Start camera";
 }
 $("scanBtn").onclick = () => (scanning ? stopScan() : startScan());
