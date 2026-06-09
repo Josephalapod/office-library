@@ -186,6 +186,10 @@
   .coverprev img{width:100%;height:100%;object-fit:cover}
   .coverbtns{display:flex;flex-direction:column;gap:6px}
   .coverbtns .btn{padding:9px 13px;font-size:13px}
+  /* multiple-copies chooser */
+  .copylist{display:flex;flex-direction:column;gap:8px;margin-top:6px}
+  .copyrow{display:flex;align-items:center;justify-content:space-between;gap:10px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:11px 13px;cursor:pointer}
+  .copyrow:active{transform:scale(.99)}
   /* book meta tags (theme + owner) */
   .metarow{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
   .tag{display:inline-flex;align-items:center;font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:999px;letter-spacing:.2px}
@@ -484,7 +488,7 @@ let activeTab = "lib";
 let curFilter = "all";
 let curTheme = "";            // "" = all themes
 let coverData = "";           // cover image (URL or compressed data URL) for the open sheet
-const APP_VERSION = "1.7";    // shown in Settings → About; bump when the app changes
+const APP_VERSION = "1.8";    // shown in Settings → About; bump when the app changes
 let scanner = null;        // Html5Qrcode instance
 let scanning = false;
 
@@ -595,8 +599,13 @@ function renderThemeChips() {
   box.querySelectorAll(".chip").forEach((c) =>
     c.onclick = () => { curTheme = c.dataset.theme; renderThemeChips(); renderList(); });
 }
+function groupKey(b) {
+  // copies that share a code (or, for code-less items, a title) are the same title
+  return b.isbn ? "i:" + normIsbn(b.isbn) : "t:" + (b.title || "").trim().toLowerCase();
+}
 function renderList() {
   const term = $("search").value.trim().toLowerCase();
+  const termDigits = normIsbn(term);
   let rows = books.filter((b) => {
     if (curFilter === "in" && b.status !== "in") return false;
     if (curFilter === "out" && b.status !== "out") return false;
@@ -606,7 +615,8 @@ function renderList() {
       (b.title || "").toLowerCase().includes(term) ||
       (b.authors || "").toLowerCase().includes(term) ||
       (b.theme || "").toLowerCase().includes(term) ||
-      (b.owner || "").toLowerCase().includes(term)
+      (b.owner || "").toLowerCase().includes(term) ||
+      (termDigits && normIsbn(b.isbn).includes(termDigits))
     )) return false;
     return true;
   });
@@ -616,21 +626,41 @@ function renderList() {
       : `<div class="empty"><div class="big">No books yet</div>Tap <b>Scan</b> to add your first one.</div>`;
     return;
   }
-  $("list").innerHTML = rows.map((b) => `
-    <div class="book" data-id="${b.id}">
+  // group copies of the same title together
+  const groups = new Map();
+  for (const b of rows) {
+    const k = groupKey(b);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(b);
+  }
+  const items = [...groups.values()];
+  $("list").innerHTML = items.map((copies, idx) => {
+    const b = copies[0];
+    const total = copies.length;
+    const avail = copies.filter((c) => c.status === "in").length;
+    const statusHtml = total === 1
+      ? `<span class="pill ${b.status === "out" ? "out" : "in"}"><span class="dot"></span>${b.status === "out" ? "Checked out" : "Available"}</span>`
+      : `<span class="pill ${avail > 0 ? "in" : "out"}"><span class="dot"></span>${avail} of ${total} available</span>`;
+    return `
+    <div class="book" data-gi="${idx}">
       ${coverHtml(b)}
       <div class="bmeta">
         <p class="btitle">${esc(b.title || "Untitled")}</p>
         <p class="bauthor">${esc(b.authors || "Unknown author")}</p>
         <div class="booktags" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-          <span class="pill ${b.status === "out" ? "out" : "in"}"><span class="dot"></span>${b.status === "out" ? "Checked out" : "Available"}</span>
+          ${statusHtml}
           ${b.theme ? `<span class="tag theme">${esc(b.theme)}</span>` : ""}
         </div>
-        ${dueLine(b)}
+        ${total === 1 ? dueLine(b) : ""}
       </div>
-    </div>`).join("");
+    </div>`;
+  }).join("");
   document.querySelectorAll(".book").forEach((el) =>
-    el.onclick = () => openBook(books.find((b) => b.id === el.dataset.id)));
+    el.onclick = () => {
+      const copies = items[+el.dataset.gi];
+      if (copies.length === 1) openBook(copies[0]);
+      else openCopies(copies);
+    });
 }
 function updateCounts() {
   const out = books.filter((b) => b.status === "out").length;
@@ -744,6 +774,7 @@ function openBook(b) {
       <div class="actions">
         <button class="btn primary block" id="doCheckin">Check it back in</button>
         <button class="btn ghost block" id="doEdit">Edit details</button>
+        <button class="btn ghost block" id="addCopyBtn">＋ Add another copy</button>
         <button class="btn danger block" id="doRemove">Remove from library</button>
       </div>`;
     $("doCheckin").onclick = () => checkin(b);
@@ -763,6 +794,7 @@ function openBook(b) {
       <div class="actions">
         <button class="btn primary block" id="doCheckout" disabled>Check out</button>
         <button class="btn ghost block" id="doEdit">Edit details</button>
+        <button class="btn ghost block" id="addCopyBtn">＋ Add another copy</button>
         <button class="btn danger block" id="doRemove">Remove from library</button>
       </div>`;
     const sel = $("who");
@@ -772,6 +804,43 @@ function openBook(b) {
   }
   $("doEdit").onclick = () => openEdit(b);
   $("doRemove").onclick = () => removeBook(b);
+  $("addCopyBtn").onclick = () => addCopyOf(b);
+  $("scrim").classList.add("show");
+}
+
+// Prefill the add form from an existing book to register another physical copy
+function addCopyOf(b) {
+  openAdd(b.isbn || "", { title: b.title, authors: b.authors, cover: b.cover, theme: b.theme, owner: b.owner });
+}
+
+// Chooser shown when a title has more than one copy
+function openCopies(copies) {
+  const b = copies[0];
+  const avail = copies.filter((c) => c.status === "in").length;
+  const rows = copies.map((c, i) => `
+    <div class="copyrow" data-id="${c.id}">
+      <div>
+        <div style="font-weight:600;font-size:14px">Copy ${i + 1}</div>
+        <div class="sub" style="font-size:12.5px">${c.status === "out"
+          ? `Out · ${esc(c.borrower || "someone")}${c.dueDate ? ` · due ${esc(c.dueDate)}` : ""}`
+          : "Available"}${c.owner ? ` · owner ${esc(c.owner)}` : ""}</div>
+      </div>
+      <span class="pill ${c.status === "out" ? "out" : "in"}"><span class="dot"></span>${c.status === "out" ? "Out" : "In"}</span>
+    </div>`).join("");
+  $("sheet").innerHTML = `
+    <div class="grab"></div>
+    <div class="bighead">
+      ${coverHtml(b)}
+      <div><h3>${esc(b.title || "Untitled")}</h3><p class="sub">${esc(b.authors || "Unknown author")}</p>${bookMeta(b)}</div>
+    </div>
+    <p class="sub">${copies.length} copies · ${avail} available — tap a copy to check it in or out.</p>
+    <div class="copylist">${rows}</div>
+    <div class="actions">
+      <button class="btn ghost block" id="addCopy">＋ Add another copy</button>
+    </div>`;
+  $("sheet").querySelectorAll(".copyrow").forEach((el) =>
+    el.onclick = () => openBook(copies.find((c) => c.id === el.dataset.id)));
+  $("addCopy").onclick = () => addCopyOf(b);
   $("scrim").classList.add("show");
 }
 
@@ -976,9 +1045,9 @@ function openAdd(isbn, meta) {
     <input class="txt" id="addAuthors" value="${esc(meta.authors || "")}">
     ${coverField()}
     <label class="fld">Book owner</label>
-    ${ownerSelect("addOwner", "")}
+    ${ownerSelect("addOwner", meta.owner || "")}
     <label class="fld">Theme</label>
-    ${themeSelect("addTheme2", "")}
+    ${themeSelect("addTheme2", meta.theme || "")}
     <input class="txt" id="addThemeOther" placeholder="Type a theme" style="display:none;margin-top:8px">
     <div class="actions">
       <button class="btn primary block" id="doAdd">Add to library</button>
@@ -1041,49 +1110,96 @@ async function handleISBN(raw) {
   const s = normIsbn(raw);
   if (s.length < 8) { toast("That doesn't look like a book or journal barcode"); return; }
   const { kind, code } = classifyCode(raw);
-  const existing = books.find((b) => normIsbn(b.isbn) === normIsbn(code));
-  if (existing) { openBook(existing); return; }     // already in library → check in/out
+  const matches = books.filter((b) => normIsbn(b.isbn) === normIsbn(code));
+  if (matches.length === 1) { openBook(matches[0]); return; }     // one copy on file
+  if (matches.length > 1) { openCopies(matches); return; }        // multiple copies → chooser
   toast(kind === "issn" ? "Looking up journal…" : "Looking up…");
   const meta = kind === "issn" ? await lookupISSN(code) : await lookupISBN(code);
   openAdd(code, meta);
 }
 
-// Journals: Crossref journals endpoint (free, no key). Journals rarely have covers.
+// Journals: Crossref, then OpenAlex as a fallback (both free, no key, CORS-enabled).
 async function lookupISSN(issn) {
+  const pretty = prettyIssn(issn);
   try {
-    const r = await fetch(`https://api.crossref.org/journals/${prettyIssn(issn)}`);
+    const r = await fetch(`https://api.crossref.org/journals/${pretty}`);
     if (r.ok) {
-      const j = await r.json();
-      const m = j.message || {};
+      const m = (await r.json()).message || {};
       if (m.title) return { title: m.title, authors: m.publisher || "", cover: "" };
+    }
+  } catch {}
+  try {
+    const r = await fetch(`https://api.openalex.org/sources/issn:${pretty}`);
+    if (r.ok) {
+      const d = await r.json();
+      if (d && d.display_name) return { title: d.display_name, authors: d.host_organization_name || "", cover: "" };
     }
   } catch {}
   return { title: "", authors: "", cover: "" };   // not found → blank form to fill in
 }
 
+// ISBN-13 ⇄ ISBN-10 so a stored/printed code in one form still matches lookups in the other
+function isbn13to10(s) {
+  if (!/^97[89]\d{10}$/.test(s)) return "";
+  const core = s.slice(3, 12);
+  let sum = 0;
+  for (let i = 0; i < 9; i++) sum += (10 - i) * parseInt(core[i], 10);
+  const c = (11 - (sum % 11)) % 11;
+  return core + (c === 10 ? "X" : String(c));
+}
+function isbn10to13(s) {
+  if (!/^\d{9}[\dX]$/.test(s)) return "";
+  const core = "978" + s.slice(0, 9);
+  let sum = 0;
+  for (let i = 0; i < 12; i++) sum += (i % 2 ? 3 : 1) * parseInt(core[i], 10);
+  return core + ((10 - (sum % 10)) % 10);
+}
+
 async function lookupISBN(isbn) {
-  // 1) Google Books (single call: title + authors + cover)
-  try {
-    const r = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`);
-    const j = await r.json();
-    if (j.totalItems > 0) {
-      const v = j.items[0].volumeInfo || {};
-      const cover = ((v.imageLinks && (v.imageLinks.thumbnail || v.imageLinks.smallThumbnail)) || "").replace("http://", "https://");
-      if (v.title) return { title: v.title, authors: (v.authors || []).join(", "), cover };
-    }
-  } catch {}
-  // 2) Open Library fallback
-  try {
-    const r = await fetch(`https://openlibrary.org/isbn/${isbn}.json`);
-    if (r.ok) {
-      const d = await r.json();
-      let authors = [];
-      for (const a of (d.authors || [])) {
-        try { const ar = await fetch(`https://openlibrary.org${a.key}.json`); authors.push((await ar.json()).name); } catch {}
+  // Try both ISBN forms across all sources — many databases only index one edition
+  const forms = [isbn];
+  const alt = isbn.length === 13 ? isbn13to10(isbn) : isbn10to13(isbn);
+  if (alt && !forms.includes(alt)) forms.push(alt);
+
+  for (const code of forms) {
+    // 1) Google Books
+    try {
+      const r = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${code}`);
+      const j = await r.json();
+      if (j.totalItems > 0) {
+        const v = j.items[0].volumeInfo || {};
+        const cover = ((v.imageLinks && (v.imageLinks.thumbnail || v.imageLinks.smallThumbnail)) || "").replace("http://", "https://");
+        if (v.title) return { title: v.title, authors: (v.authors || []).join(", "), cover };
       }
-      return { title: d.title || "", authors: authors.join(", "), cover: `https://covers.openlibrary.org/b/isbn/${isbn}-M.jpg` };
-    }
-  } catch {}
+    } catch {}
+    // 2) Open Library "data" API (single call with title, authors, cover)
+    try {
+      const r = await fetch(`https://openlibrary.org/api/books?bibkeys=ISBN:${code}&jscmd=data&format=json`);
+      if (r.ok) {
+        const j = await r.json();
+        const d = j["ISBN:" + code];
+        if (d && d.title) {
+          const cover = (d.cover && (d.cover.medium || d.cover.large || d.cover.small)) || `https://covers.openlibrary.org/b/isbn/${code}-M.jpg`;
+          return { title: d.title, authors: (d.authors || []).map((a) => a.name).join(", "), cover };
+        }
+      }
+    } catch {}
+    // 3) Open Library book record
+    try {
+      const r = await fetch(`https://openlibrary.org/isbn/${code}.json`);
+      if (r.ok) {
+        const d = await r.json();
+        if (d && d.title) {
+          let authors = [];
+          for (const a of (d.authors || [])) {
+            try { const ar = await fetch(`https://openlibrary.org${a.key}.json`); authors.push((await ar.json()).name); } catch {}
+          }
+          return { title: d.title, authors: authors.join(", "), cover: `https://covers.openlibrary.org/b/isbn/${code}-M.jpg` };
+        }
+      }
+    } catch {}
+  }
+  // Nothing found anywhere — hand back a blank form (cover guess from the primary ISBN)
   return { title: "", authors: "", cover: `https://covers.openlibrary.org/b/isbn/${isbn}-M.jpg` };
 }
 
